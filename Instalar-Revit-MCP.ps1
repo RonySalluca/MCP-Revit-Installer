@@ -124,6 +124,11 @@ function Read-SelectedYears {
     }
 
     if ($choice -match "^[mM]$") {
+        Write-Host "Modo manual puede instalar en versiones no detectadas. Usalo solo si sabes que Revit existe." -ForegroundColor Yellow
+        $confirm = Read-Host "Escribe SI para continuar con seleccion manual"
+        if ($confirm -ne "SI") {
+            return @()
+        }
         $manual = Read-Host "Escribe versiones separadas por coma (ej: 2024,2025,2026)"
         return @($manual.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -in $SupportedYears } | Select-Object -Unique)
     }
@@ -133,7 +138,12 @@ function Read-SelectedYears {
         $n = 0
         if ([int]::TryParse($part.Trim(), [ref]$n)) {
             if ($n -ge 1 -and $n -le $SupportedYears.Count) {
-                $selected += $SupportedYears[$n - 1]
+                $item = $info[$n - 1]
+                if ($item.RevitInstalled) {
+                    $selected += $item.Year
+                } else {
+                    Write-Host "Revit $($item.Year) no esta detectado como instalacion real. Se omite." -ForegroundColor Yellow
+                }
             }
         }
     }
@@ -370,7 +380,9 @@ function Install-McpClients {
 }
 
 function Get-InstalledMcpServer {
-    foreach ($year in ($SupportedYears | Sort-Object -Descending)) {
+    param([string[]]$Years = $SupportedYears)
+
+    foreach ($year in ($Years | Sort-Object -Descending)) {
         $serverRoot = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$year\revit_mcp_plugin\Commands\RevitMCPCommandSet\server"
         $nodePath = Join-Path $serverRoot "runtime\node.exe"
         $serverPath = Join-Path $serverRoot "build\index.js"
@@ -641,10 +653,12 @@ function Repair-ClaudeConfig {
 }
 
 function Repair-ClientConfigs {
+    param([string[]]$Years = $SupportedYears)
+
     Write-Host ""
     Write-Host "Reparando configuraciones MCP de clientes..." -ForegroundColor Cyan
 
-    $installed = Get-InstalledMcpServer
+    $installed = Get-InstalledMcpServer -Years $Years
     if (-not $installed) {
         Write-Host "No encontre server\\build\\index.js y runtime\\node.exe instalados. Se omite configuracion de clientes." -ForegroundColor Yellow
         return
@@ -676,16 +690,28 @@ function Install-SelectedYears {
     Write-Host "IMPORTANTE: cierra Revit antes de continuar." -ForegroundColor Yellow
     Read-Host "Presiona Enter cuando Revit este cerrado"
 
+    $installedYears = @()
     foreach ($year in $years) {
         Write-Host ""
         Write-Host "Instalando/Reparando Revit $year..." -ForegroundColor Cyan
         & powershell -NoProfile -ExecutionPolicy Bypass -File $InstallerPath -RevitVersion $year -Force
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Revit $year termino con error. Revisa el mensaje anterior." -ForegroundColor Yellow
+        } else {
+            $server = Get-InstalledMcpServer -Years @($year)
+            if ($server) {
+                $installedYears += $year
+            } else {
+                Write-Host "No encontre el servidor MCP instalado para Revit $year despues del instalador." -ForegroundColor Yellow
+            }
         }
     }
 
-    Repair-ClientConfigs
+    if ($installedYears.Count -gt 0) {
+        Repair-ClientConfigs -Years $installedYears
+    } else {
+        Write-Host "No hay instalaciones MCP verificadas para configurar en clientes." -ForegroundColor Yellow
+    }
 
     Write-Host ""
     Write-Host "Listo. Abre Revit, pulsa 'Revit MCP Switch', y reinicia tus clientes MCP." -ForegroundColor Green
