@@ -11,7 +11,13 @@ https://github.com/LuDattilo/revit-mcp-server
 Cuando este repo este publicado en GitHub, usa esta linea en PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=\"$env:TEMP\Instalar-Revit-MCP.ps1\"; irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Instalar-Revit-MCP.ps1 -OutFile $p; & $p"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Instalar-Revit-MCP.ps1 | iex"
+```
+
+Si ya estas dentro de PowerShell, tambien puedes usar la version corta:
+
+```powershell
+irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Instalar-Revit-MCP.ps1 | iex
 ```
 
 ## Que hace
