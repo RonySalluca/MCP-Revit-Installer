@@ -19,9 +19,7 @@ $ProgressPreference = "SilentlyContinue"
 
 $RepoRaw = "https://raw.githubusercontent.com/LuDattilo/revit-mcp-server/main/scripts"
 $InstallerUrl = "$RepoRaw/install.ps1"
-$FixUrl = "$RepoRaw/fix-mcp.ps1"
 $InstallerPath = Join-Path $env:TEMP "install-revit-mcp-official.ps1"
-$FixPath = Join-Path $env:TEMP "fix-revit-mcp-official.ps1"
 $SupportedYears = @("2023", "2024", "2025", "2026", "2027")
 
 function Write-Title {
@@ -102,10 +100,77 @@ function Read-SelectedYears {
 
 function Download-OfficialScripts {
     Write-Host ""
-    Write-Host "Descargando scripts oficiales..." -ForegroundColor Cyan
+    Write-Host "Descargando instalador oficial..." -ForegroundColor Cyan
     Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -Headers @{ "User-Agent" = "revit-mcp-menu-installer" }
-    Invoke-WebRequest -Uri $FixUrl -OutFile $FixPath -Headers @{ "User-Agent" = "revit-mcp-menu-installer" }
-    Write-Host "OK: scripts descargados en TEMP." -ForegroundColor Green
+    Write-Host "OK: instalador descargado en TEMP." -ForegroundColor Green
+}
+
+function Get-InstalledMcpServer {
+    foreach ($year in ($SupportedYears | Sort-Object -Descending)) {
+        $serverRoot = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$year\revit_mcp_plugin\Commands\RevitMCPCommandSet\server"
+        $nodePath = Join-Path $serverRoot "runtime\node.exe"
+        $serverPath = Join-Path $serverRoot "build\index.js"
+        if ((Test-Path $nodePath) -and (Test-Path $serverPath)) {
+            return [PSCustomObject]@{
+                Year = $year
+                NodePath = $nodePath
+                ServerPath = $serverPath
+            }
+        }
+    }
+    return $null
+}
+
+function Repair-ClaudeConfig {
+    Write-Host ""
+    Write-Host "Reparando configuracion MCP/Claude..." -ForegroundColor Cyan
+
+    $installed = Get-InstalledMcpServer
+    if (-not $installed) {
+        Write-Host "No encontre server\\build\\index.js y runtime\\node.exe instalados. Se omite Claude." -ForegroundColor Yellow
+        return
+    }
+
+    $claudeDir = Join-Path $env:APPDATA "Claude"
+    if (-not (Test-Path $claudeDir)) {
+        New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
+    }
+
+    $configPath = Join-Path $claudeDir "claude_desktop_config.json"
+    $config = $null
+
+    if (Test-Path $configPath) {
+        try {
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            $backupPath = "$configPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $configPath $backupPath -Force
+            Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
+        } catch {
+            $backupPath = "$configPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $configPath $backupPath -Force
+            Write-Host "El JSON anterior era invalido. Backup: $backupPath" -ForegroundColor Yellow
+            $config = [PSCustomObject]@{}
+        }
+    } else {
+        $config = [PSCustomObject]@{}
+    }
+
+    if (-not $config.mcpServers) {
+        $config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{}) -Force
+    }
+
+    $entry = [PSCustomObject]@{
+        command = $installed.NodePath
+        args = @($installed.ServerPath)
+    }
+
+    $config.mcpServers | Add-Member -NotePropertyName "revit-mcp" -NotePropertyValue $entry -Force
+    $config | ConvertTo-Json -Depth 20 | Set-Content -Path $configPath -Encoding UTF8
+    Get-Content $configPath -Raw | ConvertFrom-Json | Out-Null
+
+    Write-Host "Claude configurado para Revit $($installed.Year)." -ForegroundColor Green
+    Write-Host "Node: $($installed.NodePath)" -ForegroundColor DarkGray
+    Write-Host "Server: $($installed.ServerPath)" -ForegroundColor DarkGray
 }
 
 function Install-SelectedYears {
@@ -134,9 +199,7 @@ function Install-SelectedYears {
         }
     }
 
-    Write-Host ""
-    Write-Host "Ejecutando reparacion de configuracion MCP/Claude..." -ForegroundColor Cyan
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $FixPath
+    Repair-ClaudeConfig
 
     Write-Host ""
     Write-Host "Listo. Abre Revit, pulsa 'Revit MCP Switch', y reinicia Claude Desktop completo." -ForegroundColor Green
@@ -144,10 +207,7 @@ function Install-SelectedYears {
 }
 
 function Fix-Only {
-    Download-OfficialScripts
-    Write-Host ""
-    Write-Host "Ejecutando fix-mcp oficial..." -ForegroundColor Cyan
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $FixPath
+    Repair-ClaudeConfig
     Pause
 }
 
