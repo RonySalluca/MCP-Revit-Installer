@@ -49,6 +49,43 @@ function Get-RevitExePaths {
     return @($paths | Where-Object { Test-Path $_ } | Select-Object -Unique)
 }
 
+function Test-RevitRegistryResidue {
+    param([string]$Year)
+
+    $regPaths = @(
+        "HKLM:\SOFTWARE\Autodesk\Revit\Autodesk Revit $Year",
+        "HKLM:\SOFTWARE\WOW6432Node\Autodesk\Revit\Autodesk Revit $Year",
+        "HKCU:\SOFTWARE\Autodesk\Revit\Autodesk Revit $Year"
+    )
+
+    foreach ($path in $regPaths) {
+        if (Test-Path $path) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Get-RevitMcpInstallStatus {
+    param([string]$Year)
+
+    $addinDir = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$Year"
+    $pluginDir = Join-Path $addinDir "revit_mcp_plugin"
+    $addinFile = Join-Path $addinDir "mcp-servers-for-revit.addin"
+    $serverRoot = Join-Path $pluginDir "Commands\RevitMCPCommandSet\server"
+    $nodePath = Join-Path $serverRoot "runtime\node.exe"
+    $serverPath = Join-Path $serverRoot "build\index.js"
+    $commandDll = Join-Path $pluginDir "Commands\RevitMCPCommandSet\$Year\RevitMCPCommandSet.dll"
+
+    $hasAny = (Test-Path $addinDir) -or (Test-Path $pluginDir) -or (Test-Path $addinFile) -or (Test-Path $nodePath) -or (Test-Path $serverPath) -or (Test-Path $commandDll)
+    $complete = (Test-Path $addinFile) -and (Test-Path $pluginDir) -and (Test-Path $nodePath) -and (Test-Path $serverPath) -and (Test-Path $commandDll)
+
+    if ($complete) { return "MCP OK" }
+    if ($hasAny) { return "MCP incompleto/residuo" }
+    return "Sin MCP"
+}
+
 function Write-Title {
     Clear-Host
     Write-Host ""
@@ -75,36 +112,60 @@ function Get-RevitYearInfo {
         $addinFile = Join-Path $addinDir "mcp-servers-for-revit.addin"
         $exePaths = @(Get-RevitExePaths -Year $year)
         $exeExists = $exePaths.Count -gt 0
+        $registryResidue = Test-RevitRegistryResidue -Year $year
+        $mcpStatus = Get-RevitMcpInstallStatus -Year $year
 
         $items += [PSCustomObject]@{
             Year = $year
             RevitInstalled = $exeExists
             RevitExe = $exeExists
-            RevitRegistry = $false
+            RevitRegistry = $registryResidue
             RevitExePath = if ($exeExists) { $exePaths -join "; " } else { "" }
             AddinsFolder = Test-Path $addinDir
-            McpInstalled = (Test-Path $pluginDir) -and (Test-Path $addinFile)
+            McpInstalled = $mcpStatus -eq "MCP OK"
+            McpStatus = $mcpStatus
             AddinsPath = $addinDir
+            Installable = $exeExists
         }
     }
     return $items
+}
+
+function Write-RevitTable {
+    param([object[]]$Info)
+
+    Write-Host ("  {0,-4} {1,-8} {2,-24} {3,-24} {4}" -f "Op", "Version", "Revit", "MCP", "Accion")
+    Write-Host ("  {0,-4} {1,-8} {2,-24} {3,-24} {4}" -f "--", "-------", "-----", "---", "------") -ForegroundColor DarkGray
+
+    for ($i = 0; $i -lt $Info.Count; $i++) {
+        $item = $Info[$i]
+        $op = "[$($i + 1)]"
+        $revit = if ($item.RevitInstalled) {
+            "REAL: Revit.exe"
+        } elseif ($item.RevitRegistry -or $item.AddinsFolder -or $item.McpStatus -ne "Sin MCP") {
+            "Residuo, no instalable"
+        } else {
+            "No detectado"
+        }
+        $action = if ($item.Installable) {
+            "Se puede instalar/reparar"
+        } elseif ($item.McpStatus -ne "Sin MCP") {
+            "Limpiar/ignorar residuo"
+        } else {
+            "No usar"
+        }
+        $color = if ($item.Installable) { "Green" } elseif ($item.McpStatus -ne "Sin MCP" -or $item.AddinsFolder -or $item.RevitRegistry) { "Yellow" } else { "DarkGray" }
+        Write-Host ("  {0,-4} {1,-8} {2,-24} {3,-24} {4}" -f $op, $item.Year, $revit, $item.McpStatus, $action) -ForegroundColor $color
+    }
 }
 
 function Show-VersionTable {
     $info = Get-RevitYearInfo
     Write-Host "Versiones disponibles:" -ForegroundColor White
     Write-Host ""
-    for ($i = 0; $i -lt $info.Count; $i++) {
-        $item = $info[$i]
-        $sources = @()
-        if ($item.RevitExe) { $sources += "exe" }
-        if ($item.RevitRegistry) { $sources += "registro" }
-        $detected = if ($item.RevitInstalled) { "Revit detectado (" + ($sources -join "+") + ")" } elseif ($item.AddinsFolder) { "residuo Addins, no cuenta" } else { "no detectado" }
-        $mcp = if ($item.McpInstalled) { "MCP instalado" } else { "MCP no instalado" }
-        Write-Host ("  [{0}] Revit {1}  -  {2}  -  {3}" -f ($i + 1), $item.Year, $detected, $mcp)
-    }
+    Write-RevitTable -Info $info
     Write-Host ""
-    Write-Host "  [A] Todas las versiones detectadas"
+    Write-Host "  [A] Todas las versiones con Revit.exe real"
     Write-Host "  [M] Elegir manualmente por anios (ej: 2024,2026)"
     Write-Host ""
 }
@@ -279,14 +340,7 @@ function Show-Diagnostics {
 
     Write-Host "Revit:" -ForegroundColor White
     $revitInfo = @(Get-RevitYearInfo)
-    foreach ($item in $revitInfo) {
-        $sources = @()
-        if ($item.RevitExe) { $sources += "exe" }
-        if ($item.RevitRegistry) { $sources += "registro" }
-        $status = if ($item.RevitInstalled) { "detectado (" + ($sources -join "+") + ")" } elseif ($item.AddinsFolder) { "residuo Addins, no cuenta" } else { "no detectado" }
-        $mcp = if ($item.McpInstalled) { "MCP instalado" } else { "MCP no instalado" }
-        Write-Host ("  - Revit {0}: {1}; {2}" -f $item.Year, $status, $mcp)
-    }
+    Write-RevitTable -Info $revitInfo
 
     Write-Host ""
     Write-Host "Clientes MCP:" -ForegroundColor White
