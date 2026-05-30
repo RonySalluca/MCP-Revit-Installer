@@ -24,9 +24,9 @@ irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Insta
 
 - Muestra un menu simple.
 - Permite elegir versiones de Revit: 2023, 2024, 2025, 2026 y 2027.
-- Permite instalar en todas las versiones detectadas.
+- Permite instalar en todas las versiones reales detectadas.
 - Permite escribir versiones manualmente, por ejemplo `2024,2025,2026`.
-- Crea la carpeta `Addins\<version>` antes de ejecutar el instalador, para evitar fallos de deteccion.
+- No considera carpetas `Addins\<version>` como prueba de Revit instalado, porque pueden ser residuos.
 - Descarga el `install.ps1` oficial.
 - Ejecuta el instalador oficial por cada version elegida.
 - Repara la configuracion de Claude/MCP sin borrar otros MCPs ni preferencias.
@@ -34,6 +34,7 @@ irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Insta
 - Detecta la ruta clasica de Claude y tambien la ruta MSIX/WindowsApps.
 - Configura Antigravity/Gemini en `.gemini\config\mcp_config.json` y, si existe, tambien en `.gemini\antigravity\mcp_config.json`.
 - Configura Codex en `.codex\config.toml` agregando `[mcp_servers.revit-ludattilo]` solo si falta.
+- No crea archivos de configuracion de clientes si Claude, Antigravity o Codex no existen.
 
 ## Uso local
 

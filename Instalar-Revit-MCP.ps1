@@ -5,12 +5,12 @@
 
 .DESCRIPTION
     This script does not bundle or modify the official installer.
-    It downloads the latest official install.ps1 / fix-mcp.ps1 from:
+    It downloads the latest official install.ps1 from:
     https://github.com/LuDattilo/revit-mcp-server
 
     Use it when the official installer does not detect all Revit versions.
-    It lets you select one or more Revit versions, creates the Addins folder
-    if needed, then calls the official installer with -RevitVersion.
+    It lets you select one or more verified Revit versions, then calls the
+    official installer with -RevitVersion.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +21,24 @@ $RepoRaw = "https://raw.githubusercontent.com/LuDattilo/revit-mcp-server/main/sc
 $InstallerUrl = "$RepoRaw/install.ps1"
 $InstallerPath = Join-Path $env:TEMP "install-revit-mcp-official.ps1"
 $SupportedYears = @("2023", "2024", "2025", "2026", "2027")
+
+function Test-RevitRegistryInstalled {
+    param([string]$Year)
+
+    $regPaths = @(
+        "HKLM:\SOFTWARE\Autodesk\Revit\Autodesk Revit $Year",
+        "HKLM:\SOFTWARE\WOW6432Node\Autodesk\Revit\Autodesk Revit $Year",
+        "HKCU:\SOFTWARE\Autodesk\Revit\Autodesk Revit $Year"
+    )
+
+    foreach ($path in $regPaths) {
+        if (Test-Path $path) {
+            return $true
+        }
+    }
+
+    return $false
+}
 
 function Write-Title {
     Clear-Host
@@ -39,10 +57,14 @@ function Get-RevitYearInfo {
         $addinDir = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$year"
         $pluginDir = Join-Path $addinDir "revit_mcp_plugin"
         $addinFile = Join-Path $addinDir "mcp-servers-for-revit.addin"
+        $exeExists = Test-Path $exe
+        $registryExists = Test-RevitRegistryInstalled -Year $year
 
         $items += [PSCustomObject]@{
             Year = $year
-            RevitInstalled = Test-Path $exe
+            RevitInstalled = $exeExists -or $registryExists
+            RevitExe = $exeExists
+            RevitRegistry = $registryExists
             AddinsFolder = Test-Path $addinDir
             McpInstalled = (Test-Path $pluginDir) -and (Test-Path $addinFile)
             AddinsPath = $addinDir
@@ -57,7 +79,10 @@ function Show-VersionTable {
     Write-Host ""
     for ($i = 0; $i -lt $info.Count; $i++) {
         $item = $info[$i]
-        $detected = if ($item.RevitInstalled) { "Revit detectado" } elseif ($item.AddinsFolder) { "solo carpeta Addins" } else { "no detectado" }
+        $sources = @()
+        if ($item.RevitExe) { $sources += "exe" }
+        if ($item.RevitRegistry) { $sources += "registro" }
+        $detected = if ($item.RevitInstalled) { "Revit detectado (" + ($sources -join "+") + ")" } elseif ($item.AddinsFolder) { "residuo Addins, no cuenta" } else { "no detectado" }
         $mcp = if ($item.McpInstalled) { "MCP instalado" } else { "MCP no instalado" }
         Write-Host ("  [{0}] Revit {1}  -  {2}  -  {3}" -f ($i + 1), $item.Year, $detected, $mcp)
     }
@@ -73,9 +98,9 @@ function Read-SelectedYears {
     $info = Get-RevitYearInfo
 
     if ($choice -match "^[aA]$") {
-        $years = @($info | Where-Object { $_.RevitInstalled -or $_.AddinsFolder } | ForEach-Object { $_.Year })
+        $years = @($info | Where-Object { $_.RevitInstalled } | ForEach-Object { $_.Year })
         if ($years.Count -eq 0) {
-            Write-Host "No se detecto ninguna version. Usa M para elegir manualmente." -ForegroundColor Yellow
+            Write-Host "No se detecto ninguna version real de Revit. Usa M solo si estas seguro." -ForegroundColor Yellow
             return @()
         }
         return $years
@@ -124,8 +149,10 @@ function Get-InstalledMcpServer {
 function Get-ClaudeConfigPaths {
     $paths = @()
 
-    $standardDir = Join-Path $env:APPDATA "Claude"
-    $paths += (Join-Path $standardDir "claude_desktop_config.json")
+    $standardPath = Join-Path $env:APPDATA "Claude\claude_desktop_config.json"
+    if (Test-Path $standardPath) {
+        $paths += $standardPath
+    }
 
     $packageRoot = Join-Path $env:LOCALAPPDATA "Packages"
     if (Test-Path $packageRoot) {
@@ -133,16 +160,14 @@ function Get-ClaudeConfigPaths {
             Where-Object { $_.Name -like "Claude_*" -or $_.Name -like "AnthropicClaude_*" -or $_.Name -like "Anthropic.Claude_*" }
 
         foreach ($pkg in $packageDirs) {
-            $paths += (Join-Path $pkg.FullName "LocalCache\Roaming\Claude\claude_desktop_config.json")
+            $candidate = Join-Path $pkg.FullName "LocalCache\Roaming\Claude\claude_desktop_config.json"
+            if (Test-Path $candidate) {
+                $paths += $candidate
+            }
         }
     }
 
-    $existing = @($paths | Where-Object { Test-Path $_ } | Select-Object -Unique)
-    if ($existing.Count -gt 0) {
-        return $existing
-    }
-
-    return @((Join-Path $standardDir "claude_desktop_config.json"))
+    return @($paths | Select-Object -Unique)
 }
 
 function Set-RevitMcpEntry {
@@ -153,23 +178,23 @@ function Set-RevitMcpEntry {
         [PSCustomObject]$Installed
     )
 
-    $configDir = Split-Path $ConfigPath -Parent
-    if (-not (Test-Path $configDir)) {
-        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    if (-not (Test-Path $ConfigPath)) {
+        Write-Host "Config no existe, no se crea: $ConfigPath" -ForegroundColor Yellow
+        return
     }
 
     $config = $null
 
-    if (Test-Path $ConfigPath) {
-        try {
-            $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-        } catch {
-            $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item $ConfigPath $backupPath -Force
-            Write-Host "El JSON anterior era invalido. Backup: $backupPath" -ForegroundColor Yellow
-            $config = [PSCustomObject]@{}
-        }
-    } else {
+    try {
+        $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    } catch {
+        $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Copy-Item $ConfigPath $backupPath -Force
+        Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
+        return
+    }
+
+    if (-not $config) {
         $config = [PSCustomObject]@{}
     }
 
@@ -212,21 +237,21 @@ function Set-JsonMcpEntry {
         [PSCustomObject]$Installed
     )
 
-    $configDir = Split-Path $ConfigPath -Parent
-    if (-not (Test-Path $configDir)) {
-        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    if (-not (Test-Path $ConfigPath)) {
+        Write-Host "Config no existe, no se crea: $ConfigPath" -ForegroundColor Yellow
+        return
     }
 
-    if (Test-Path $ConfigPath) {
-        try {
-            $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-        } catch {
-            $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item $ConfigPath $backupPath -Force
-            Write-Host "El JSON anterior era invalido. Backup: $backupPath" -ForegroundColor Yellow
-            $config = [PSCustomObject]@{}
-        }
-    } else {
+    try {
+        $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    } catch {
+        $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Copy-Item $ConfigPath $backupPath -Force
+        Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
+        return
+    }
+
+    if (-not $config) {
         $config = [PSCustomObject]@{}
     }
 
@@ -264,11 +289,7 @@ function Get-AntigravityConfigPaths {
     )
 
     $existing = @($paths | Where-Object { Test-Path $_ } | Select-Object -Unique)
-    if ($existing.Count -gt 0) {
-        return $existing
-    }
-
-    return @($paths[0])
+    return $existing
 }
 
 function Repair-AntigravityConfig {
@@ -280,6 +301,11 @@ function Repair-AntigravityConfig {
     Write-Host ""
     Write-Host "Reparando configuracion MCP/Antigravity..." -ForegroundColor Cyan
     $paths = @(Get-AntigravityConfigPaths)
+    if ($paths.Count -eq 0) {
+        Write-Host "Antigravity/Gemini no detectado. No se crea configuracion." -ForegroundColor Yellow
+        return
+    }
+
     foreach ($path in $paths) {
         Set-JsonMcpEntry -ConfigPath $path -ServerName "revit-mcp" -Installed $Installed
     }
@@ -299,15 +325,13 @@ function Set-CodexMcpEntry {
         [PSCustomObject]$Installed
     )
 
-    $configDir = Split-Path $ConfigPath -Parent
-    if (-not (Test-Path $configDir)) {
-        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    if (-not (Test-Path $ConfigPath)) {
+        Write-Host "Codex no detectado o config.toml no existe. No se crea configuracion." -ForegroundColor Yellow
+        return
     }
 
     $content = ""
-    if (Test-Path $ConfigPath) {
-        $content = Get-Content $ConfigPath -Raw
-    }
+    $content = Get-Content $ConfigPath -Raw
 
     $nodeLiteral = ConvertTo-TomlLiteral $Installed.NodePath
     $serverLiteral = ConvertTo-TomlLiteral $Installed.ServerPath
@@ -363,6 +387,11 @@ function Repair-ClaudeConfig {
     Write-Host "Reparando configuracion MCP/Claude..." -ForegroundColor Cyan
 
     $configPaths = @(Get-ClaudeConfigPaths)
+    if ($configPaths.Count -eq 0) {
+        Write-Host "Claude no detectado. No se crea configuracion." -ForegroundColor Yellow
+        return
+    }
+
     foreach ($configPath in $configPaths) {
         Set-RevitMcpEntry -ConfigPath $configPath -Installed $Installed
     }
@@ -402,9 +431,6 @@ function Install-SelectedYears {
     Read-Host "Presiona Enter cuando Revit este cerrado"
 
     foreach ($year in $years) {
-        $addinDir = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$year"
-        New-Item -ItemType Directory -Force -Path $addinDir | Out-Null
-
         Write-Host ""
         Write-Host "Instalando/Reparando Revit $year..." -ForegroundColor Cyan
         & powershell -NoProfile -ExecutionPolicy Bypass -File $InstallerPath -RevitVersion $year -Force
