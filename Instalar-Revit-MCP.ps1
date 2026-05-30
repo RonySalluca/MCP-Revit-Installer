@@ -692,7 +692,7 @@ args = [$serverLiteral]
 enabled = true
 "@
 
-    $pattern = "(?ms)^\\[mcp_servers\\.revit-ludattilo\\]\\r?\\n.*?(?=^\\[|\\z)"
+    $pattern = '(?ms)^\[mcp_servers\.revit-ludattilo\]\r?\n.*?(?=^\[|\z)'
     if ($content -match $pattern) {
         Write-Host "Ya existe [mcp_servers.revit-ludattilo], no se modifica: $ConfigPath" -ForegroundColor Yellow
         return
