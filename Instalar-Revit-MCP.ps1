@@ -43,10 +43,17 @@ function Test-RevitRegistryInstalled {
 function Write-Title {
     Clear-Host
     Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host " Revit MCP - instalador facil" -ForegroundColor Cyan
-    Write-Host " Repo oficial: LuDattilo/revit-mcp-server" -ForegroundColor DarkCyan
-    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "  ______   ______   _____" -ForegroundColor Red
+    Write-Host " |  ____| /  ____| |  __ \" -ForegroundColor Red
+    Write-Host " | |__   |  |      | |  | |" -ForegroundColor Red
+    Write-Host " |  __|  |  |      | |  | |" -ForegroundColor DarkRed
+    Write-Host " | |____ |  |____  | |__| |" -ForegroundColor DarkRed
+    Write-Host " |______| \______| |_____/" -ForegroundColor DarkRed
+    Write-Host ""
+    Write-Host "        MCP Revit Installer" -ForegroundColor Cyan
+    Write-Host "        Escuela de Construccion Digital" -ForegroundColor DarkCyan
+    Write-Host "        Repo oficial base: LuDattilo/revit-mcp-server" -ForegroundColor DarkGray
+    Write-Host "============================================================" -ForegroundColor DarkGray
     Write-Host ""
 }
 
