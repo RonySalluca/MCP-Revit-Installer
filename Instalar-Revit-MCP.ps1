@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Menu installer/repair wrapper for LuDattilo/revit-mcp-server.
@@ -569,20 +569,17 @@ function Set-RevitMcpEntry {
     )
 
     if (-not (Test-Path $ConfigPath)) {
-        $dir = Split-Path $ConfigPath
-        if (-not (Test-Path $dir)) {
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        }
-        $config = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
-    } else {
-        try {
-            $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-        } catch {
-            $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item $ConfigPath $backupPath -Force
-            Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
-            return
-        }
+        Write-Host "Config no existe, no se modifica: $ConfigPath" -ForegroundColor Yellow
+        return
+    }
+
+    try {
+        $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    } catch {
+        $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Copy-Item $ConfigPath $backupPath -Force
+        Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
+        return
     }
 
     if (-not $config) {
@@ -631,20 +628,17 @@ function Set-JsonMcpEntry {
     )
 
     if (-not (Test-Path $ConfigPath)) {
-        $dir = Split-Path $ConfigPath
-        if (-not (Test-Path $dir)) {
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        }
-        $config = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
-    } else {
-        try {
-            $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-        } catch {
-            $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item $ConfigPath $backupPath -Force
-            Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
-            return
-        }
+        Write-Host "Config no existe, no se modifica: $ConfigPath" -ForegroundColor Yellow
+        return
+    }
+
+    try {
+        $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    } catch {
+        $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Copy-Item $ConfigPath $backupPath -Force
+        Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
+        return
     }
 
     if (-not $config) {
