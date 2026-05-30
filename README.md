@@ -29,10 +29,12 @@ irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Insta
 - Permite elegir versiones de Revit: 2023, 2024, 2025, 2026 y 2027.
 - Permite instalar en todas las versiones reales detectadas.
 - Permite escribir versiones manualmente, por ejemplo `2024,2025,2026`, solo con confirmacion explicita.
+- Descubre versiones existentes en la maquina desde Program Files, registro y Addins; no muestra una lista fija como si todas existieran.
 - No considera carpetas `Addins\<version>` ni claves de registro residuales como prueba suficiente de Revit instalado.
 - Revit solo cuenta como detectado si encuentra un `Revit.exe` real.
 - La tabla de Revit muestra tambien residuos Addins/MCP, pero los marca como no instalables.
 - Solo las filas marcadas como `Se puede instalar/reparar` se usan en la opcion `A` y en seleccion normal.
+- Si aparece un Revit real fuera de las versiones con ZIP oficial, lo marca como `No soportado`.
 - Claude, Codex y Antigravity solo cuentan como detectados si hay app instalada o ejecutable real; configs viejas no cuentan como instalacion.
 - Descarga el `install.ps1` oficial.
 - Ejecuta el instalador oficial por cada version elegida.

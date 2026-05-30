@@ -20,7 +20,46 @@ $ProgressPreference = "SilentlyContinue"
 $RepoRaw = "https://raw.githubusercontent.com/LuDattilo/revit-mcp-server/main/scripts"
 $InstallerUrl = "$RepoRaw/install.ps1"
 $InstallerPath = Join-Path $env:TEMP "install-revit-mcp-official.ps1"
-$SupportedYears = @("2023", "2024", "2025", "2026", "2027")
+$InstallerSupportedYears = @("2023", "2024", "2025", "2026", "2027")
+
+function Get-DetectedRevitYears {
+    $years = @()
+
+    foreach ($root in @("C:\Program Files\Autodesk", "C:\Program Files (x86)\Autodesk")) {
+        if (Test-Path $root) {
+            $years += Get-ChildItem $root -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^Revit\s+(\d{4})$' } |
+                ForEach-Object { $Matches[1] }
+        }
+    }
+
+    foreach ($root in @(
+        "HKLM:\SOFTWARE\Autodesk\Revit",
+        "HKLM:\SOFTWARE\WOW6432Node\Autodesk\Revit",
+        "HKCU:\SOFTWARE\Autodesk\Revit"
+    )) {
+        if (Test-Path $root) {
+            $years += Get-ChildItem $root -ErrorAction SilentlyContinue |
+                Where-Object { $_.PSChildName -match '(\d{4})$' } |
+                ForEach-Object { $Matches[1] }
+        }
+    }
+
+    $addinsRoot = Join-Path $env:APPDATA "Autodesk\Revit\Addins"
+    if (Test-Path $addinsRoot) {
+        $years += Get-ChildItem $addinsRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^\d{4}$' } |
+            ForEach-Object { $_.Name }
+    }
+
+    $years = @($years | Where-Object { $_ -match '^\d{4}$' } | Sort-Object -Unique)
+
+    if ($years.Count -eq 0) {
+        return $InstallerSupportedYears
+    }
+
+    return $years
+}
 
 function Get-RevitExePaths {
     param([string]$Year)
@@ -105,7 +144,7 @@ function Write-Title {
 
 function Get-RevitYearInfo {
     $items = @()
-    foreach ($year in $SupportedYears) {
+    foreach ($year in (Get-DetectedRevitYears)) {
         $exe = "C:\Program Files\Autodesk\Revit $year\Revit.exe"
         $addinDir = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$year"
         $pluginDir = Join-Path $addinDir "revit_mcp_plugin"
@@ -125,7 +164,8 @@ function Get-RevitYearInfo {
             McpInstalled = $mcpStatus -eq "MCP OK"
             McpStatus = $mcpStatus
             AddinsPath = $addinDir
-            Installable = $exeExists
+            SupportedByInstaller = $year -in $InstallerSupportedYears
+            Installable = $exeExists -and ($year -in $InstallerSupportedYears)
         }
     }
     return $items
@@ -134,8 +174,8 @@ function Get-RevitYearInfo {
 function Write-RevitTable {
     param([object[]]$Info)
 
-    Write-Host ("  {0,-4} {1,-8} {2,-24} {3,-24} {4}" -f "Op", "Version", "Revit", "MCP", "Accion")
-    Write-Host ("  {0,-4} {1,-8} {2,-24} {3,-24} {4}" -f "--", "-------", "-----", "---", "------") -ForegroundColor DarkGray
+    Write-Host ("  {0,-4} {1,-8} {2,-24} {3,-24} {4,-12} {5}" -f "Op", "Version", "Revit", "MCP", "Soporte", "Accion")
+    Write-Host ("  {0,-4} {1,-8} {2,-24} {3,-24} {4,-12} {5}" -f "--", "-------", "-----", "---", "-------", "------") -ForegroundColor DarkGray
 
     for ($i = 0; $i -lt $Info.Count; $i++) {
         $item = $Info[$i]
@@ -147,15 +187,18 @@ function Write-RevitTable {
         } else {
             "No detectado"
         }
+        $support = if ($item.SupportedByInstaller) { "Soportado" } else { "No soportado" }
         $action = if ($item.Installable) {
             "Se puede instalar/reparar"
+        } elseif ($item.RevitInstalled -and -not $item.SupportedByInstaller) {
+            "Revit real, sin ZIP oficial"
         } elseif ($item.McpStatus -ne "Sin MCP") {
             "Limpiar/ignorar residuo"
         } else {
             "No usar"
         }
-        $color = if ($item.Installable) { "Green" } elseif ($item.McpStatus -ne "Sin MCP" -or $item.AddinsFolder -or $item.RevitRegistry) { "Yellow" } else { "DarkGray" }
-        Write-Host ("  {0,-4} {1,-8} {2,-24} {3,-24} {4}" -f $op, $item.Year, $revit, $item.McpStatus, $action) -ForegroundColor $color
+        $color = if ($item.Installable) { "Green" } elseif ($item.RevitInstalled -and -not $item.SupportedByInstaller) { "Magenta" } elseif ($item.McpStatus -ne "Sin MCP" -or $item.AddinsFolder -or $item.RevitRegistry) { "Yellow" } else { "DarkGray" }
+        Write-Host ("  {0,-4} {1,-8} {2,-24} {3,-24} {4,-12} {5}" -f $op, $item.Year, $revit, $item.McpStatus, $support, $action) -ForegroundColor $color
     }
 }
 
@@ -165,7 +208,7 @@ function Show-VersionTable {
     Write-Host ""
     Write-RevitTable -Info $info
     Write-Host ""
-    Write-Host "  [A] Todas las versiones con Revit.exe real"
+    Write-Host "  [A] Todas las versiones con Revit.exe real y soporte oficial"
     Write-Host "  [M] Elegir manualmente por anios (ej: 2024,2026)"
     Write-Host ""
 }
@@ -191,19 +234,21 @@ function Read-SelectedYears {
             return @()
         }
         $manual = Read-Host "Escribe versiones separadas por coma (ej: 2024,2025,2026)"
-        return @($manual.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -in $SupportedYears } | Select-Object -Unique)
+        return @($manual.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d{4}$' } | Select-Object -Unique)
     }
 
     $selected = @()
     foreach ($part in $choice.Split(",")) {
         $n = 0
         if ([int]::TryParse($part.Trim(), [ref]$n)) {
-            if ($n -ge 1 -and $n -le $SupportedYears.Count) {
+            if ($n -ge 1 -and $n -le $info.Count) {
                 $item = $info[$n - 1]
-                if ($item.RevitInstalled) {
+                if ($item.Installable) {
                     $selected += $item.Year
+                } elseif ($item.RevitInstalled -and -not $item.SupportedByInstaller) {
+                    Write-Host "Revit $($item.Year) existe, pero el instalador oficial no publica ZIP para esa version. Se omite." -ForegroundColor Magenta
                 } else {
-                    Write-Host "Revit $($item.Year) no esta detectado como instalacion real. Se omite." -ForegroundColor Yellow
+                    Write-Host "Revit $($item.Year) no esta detectado como instalacion real instalable. Se omite." -ForegroundColor Yellow
                 }
             }
         }
@@ -434,7 +479,7 @@ function Install-McpClients {
 }
 
 function Get-InstalledMcpServer {
-    param([string[]]$Years = $SupportedYears)
+    param([string[]]$Years = $InstallerSupportedYears)
 
     foreach ($year in ($Years | Sort-Object -Descending)) {
         $serverRoot = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$year\revit_mcp_plugin\Commands\RevitMCPCommandSet\server"
@@ -707,7 +752,7 @@ function Repair-ClaudeConfig {
 }
 
 function Repair-ClientConfigs {
-    param([string[]]$Years = $SupportedYears)
+    param([string[]]$Years = $InstallerSupportedYears)
 
     Write-Host ""
     Write-Host "Reparando configuraciones MCP de clientes..." -ForegroundColor Cyan
