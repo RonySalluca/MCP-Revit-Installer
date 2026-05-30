@@ -28,9 +28,9 @@ irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Insta
 - Permite escribir versiones manualmente, por ejemplo `2024,2025,2026`.
 - Crea la carpeta `Addins\<version>` antes de ejecutar el instalador, para evitar fallos de deteccion.
 - Descarga el `install.ps1` oficial.
-- Descarga el `fix-mcp.ps1` oficial.
 - Ejecuta el instalador oficial por cada version elegida.
-- Al final ejecuta el fix oficial para reparar la configuracion de Claude/MCP.
+- Repara la configuracion de Claude/MCP sin borrar otros MCPs ni preferencias.
+- Detecta la ruta clasica de Claude y tambien la ruta MSIX/WindowsApps.
 
 ## Uso local
 

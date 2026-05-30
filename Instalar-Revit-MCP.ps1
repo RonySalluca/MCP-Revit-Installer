@@ -121,33 +121,54 @@ function Get-InstalledMcpServer {
     return $null
 }
 
-function Repair-ClaudeConfig {
-    Write-Host ""
-    Write-Host "Reparando configuracion MCP/Claude..." -ForegroundColor Cyan
+function Get-ClaudeConfigPaths {
+    $paths = @()
 
-    $installed = Get-InstalledMcpServer
-    if (-not $installed) {
-        Write-Host "No encontre server\\build\\index.js y runtime\\node.exe instalados. Se omite Claude." -ForegroundColor Yellow
-        return
+    $standardDir = Join-Path $env:APPDATA "Claude"
+    $paths += (Join-Path $standardDir "claude_desktop_config.json")
+
+    $packageRoot = Join-Path $env:LOCALAPPDATA "Packages"
+    if (Test-Path $packageRoot) {
+        $packageDirs = Get-ChildItem $packageRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "Claude_*" -or $_.Name -like "AnthropicClaude_*" -or $_.Name -like "Anthropic.Claude_*" }
+
+        foreach ($pkg in $packageDirs) {
+            $paths += (Join-Path $pkg.FullName "LocalCache\Roaming\Claude\claude_desktop_config.json")
+        }
     }
 
-    $claudeDir = Join-Path $env:APPDATA "Claude"
-    if (-not (Test-Path $claudeDir)) {
-        New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
+    $existing = @($paths | Where-Object { Test-Path $_ } | Select-Object -Unique)
+    if ($existing.Count -gt 0) {
+        return $existing
     }
 
-    $configPath = Join-Path $claudeDir "claude_desktop_config.json"
+    return @((Join-Path $standardDir "claude_desktop_config.json"))
+}
+
+function Set-RevitMcpEntry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ConfigPath,
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Installed
+    )
+
+    $configDir = Split-Path $ConfigPath -Parent
+    if (-not (Test-Path $configDir)) {
+        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    }
+
     $config = $null
 
-    if (Test-Path $configPath) {
+    if (Test-Path $ConfigPath) {
         try {
-            $config = Get-Content $configPath -Raw | ConvertFrom-Json
-            $backupPath = "$configPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item $configPath $backupPath -Force
+            $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+            $backupPath = "$ConfigPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $ConfigPath $backupPath -Force
             Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
         } catch {
-            $backupPath = "$configPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item $configPath $backupPath -Force
+            $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $ConfigPath $backupPath -Force
             Write-Host "El JSON anterior era invalido. Backup: $backupPath" -ForegroundColor Yellow
             $config = [PSCustomObject]@{}
         }
@@ -160,15 +181,35 @@ function Repair-ClaudeConfig {
     }
 
     $entry = [PSCustomObject]@{
-        command = $installed.NodePath
-        args = @($installed.ServerPath)
+        command = $Installed.NodePath
+        args = @($Installed.ServerPath)
     }
 
+    # Preserve every existing MCP server and every top-level Claude setting.
+    # Only add/replace the revit-mcp entry.
     $config.mcpServers | Add-Member -NotePropertyName "revit-mcp" -NotePropertyValue $entry -Force
-    $config | ConvertTo-Json -Depth 20 | Set-Content -Path $configPath -Encoding UTF8
-    Get-Content $configPath -Raw | ConvertFrom-Json | Out-Null
 
-    Write-Host "Claude configurado para Revit $($installed.Year)." -ForegroundColor Green
+    $config | ConvertTo-Json -Depth 20 | Set-Content -Path $ConfigPath -Encoding UTF8
+    Get-Content $ConfigPath -Raw | ConvertFrom-Json | Out-Null
+    Write-Host "OK: $ConfigPath" -ForegroundColor Green
+}
+
+function Repair-ClaudeConfig {
+    Write-Host ""
+    Write-Host "Reparando configuracion MCP/Claude..." -ForegroundColor Cyan
+
+    $installed = Get-InstalledMcpServer
+    if (-not $installed) {
+        Write-Host "No encontre server\\build\\index.js y runtime\\node.exe instalados. Se omite Claude." -ForegroundColor Yellow
+        return
+    }
+
+    $configPaths = @(Get-ClaudeConfigPaths)
+    foreach ($configPath in $configPaths) {
+        Set-RevitMcpEntry -ConfigPath $configPath -Installed $installed
+    }
+
+    Write-Host "Claude configurado para Revit $($installed.Year) en $($configPaths.Count) ubicacion(es)." -ForegroundColor Green
     Write-Host "Node: $($installed.NodePath)" -ForegroundColor DarkGray
     Write-Host "Server: $($installed.ServerPath)" -ForegroundColor DarkGray
 }
