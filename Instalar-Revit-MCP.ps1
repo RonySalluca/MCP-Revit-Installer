@@ -194,24 +194,177 @@ function Set-RevitMcpEntry {
     Write-Host "OK: $ConfigPath" -ForegroundColor Green
 }
 
+function Set-JsonMcpEntry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ConfigPath,
+        [Parameter(Mandatory = $true)]
+        [string]$ServerName,
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Installed
+    )
+
+    $configDir = Split-Path $ConfigPath -Parent
+    if (-not (Test-Path $configDir)) {
+        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    }
+
+    if (Test-Path $ConfigPath) {
+        try {
+            $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+            $backupPath = "$ConfigPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $ConfigPath $backupPath -Force
+            Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
+        } catch {
+            $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $ConfigPath $backupPath -Force
+            Write-Host "El JSON anterior era invalido. Backup: $backupPath" -ForegroundColor Yellow
+            $config = [PSCustomObject]@{}
+        }
+    } else {
+        $config = [PSCustomObject]@{}
+    }
+
+    if (-not $config.mcpServers) {
+        $config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{}) -Force
+    }
+
+    $entry = [PSCustomObject]@{
+        command = $Installed.NodePath
+        args = @($Installed.ServerPath)
+        env = [PSCustomObject]@{}
+    }
+
+    $config.mcpServers | Add-Member -NotePropertyName $ServerName -NotePropertyValue $entry -Force
+    $config | ConvertTo-Json -Depth 20 | Set-Content -Path $ConfigPath -Encoding UTF8
+    Get-Content $ConfigPath -Raw | ConvertFrom-Json | Out-Null
+    Write-Host "OK: $ConfigPath" -ForegroundColor Green
+}
+
+function Get-AntigravityConfigPaths {
+    $paths = @(
+        (Join-Path $env:USERPROFILE ".gemini\config\mcp_config.json"),
+        (Join-Path $env:USERPROFILE ".gemini\antigravity\mcp_config.json")
+    )
+
+    $existing = @($paths | Where-Object { Test-Path $_ } | Select-Object -Unique)
+    if ($existing.Count -gt 0) {
+        return $existing
+    }
+
+    return @($paths[0])
+}
+
+function Repair-AntigravityConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Installed
+    )
+
+    Write-Host ""
+    Write-Host "Reparando configuracion MCP/Antigravity..." -ForegroundColor Cyan
+    $paths = @(Get-AntigravityConfigPaths)
+    foreach ($path in $paths) {
+        Set-JsonMcpEntry -ConfigPath $path -ServerName "revit-mcp" -Installed $Installed
+    }
+    Write-Host "Antigravity configurado en $($paths.Count) ubicacion(es)." -ForegroundColor Green
+}
+
+function ConvertTo-TomlLiteral {
+    param([string]$Value)
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function Set-CodexMcpEntry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ConfigPath,
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Installed
+    )
+
+    $configDir = Split-Path $ConfigPath -Parent
+    if (-not (Test-Path $configDir)) {
+        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    }
+
+    $content = ""
+    if (Test-Path $ConfigPath) {
+        $content = Get-Content $ConfigPath -Raw
+        $backupPath = "$ConfigPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Copy-Item $ConfigPath $backupPath -Force
+        Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
+    }
+
+    $nodeLiteral = ConvertTo-TomlLiteral $Installed.NodePath
+    $serverLiteral = ConvertTo-TomlLiteral $Installed.ServerPath
+    $block = @"
+[mcp_servers.revit-ludattilo]
+command = $nodeLiteral
+args = [$serverLiteral]
+enabled = true
+"@
+
+    $pattern = "(?ms)^\\[mcp_servers\\.revit-ludattilo\\]\\r?\\n.*?(?=^\\[|\\z)"
+    if ($content -match $pattern) {
+        $content = [regex]::Replace($content, $pattern, ($block.TrimEnd() + "`r`n`r`n"))
+    } else {
+        if ($content.Trim().Length -gt 0) {
+            $content = $content.TrimEnd() + "`r`n`r`n" + $block.TrimEnd() + "`r`n"
+        } else {
+            $content = $block.TrimEnd() + "`r`n"
+        }
+    }
+
+    Set-Content -Path $ConfigPath -Value $content -Encoding UTF8
+    Write-Host "OK: $ConfigPath" -ForegroundColor Green
+}
+
+function Repair-CodexConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Installed
+    )
+
+    Write-Host ""
+    Write-Host "Reparando configuracion MCP/Codex..." -ForegroundColor Cyan
+    $path = Join-Path $env:USERPROFILE ".codex\config.toml"
+    Set-CodexMcpEntry -ConfigPath $path -Installed $Installed
+    Write-Host "Codex configurado." -ForegroundColor Green
+}
+
 function Repair-ClaudeConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Installed
+    )
+
     Write-Host ""
     Write-Host "Reparando configuracion MCP/Claude..." -ForegroundColor Cyan
 
+    $configPaths = @(Get-ClaudeConfigPaths)
+    foreach ($configPath in $configPaths) {
+        Set-RevitMcpEntry -ConfigPath $configPath -Installed $Installed
+    }
+
+    Write-Host "Claude configurado para Revit $($Installed.Year) en $($configPaths.Count) ubicacion(es)." -ForegroundColor Green
+    Write-Host "Node: $($Installed.NodePath)" -ForegroundColor DarkGray
+    Write-Host "Server: $($Installed.ServerPath)" -ForegroundColor DarkGray
+}
+
+function Repair-ClientConfigs {
+    Write-Host ""
+    Write-Host "Reparando configuraciones MCP de clientes..." -ForegroundColor Cyan
+
     $installed = Get-InstalledMcpServer
     if (-not $installed) {
-        Write-Host "No encontre server\\build\\index.js y runtime\\node.exe instalados. Se omite Claude." -ForegroundColor Yellow
+        Write-Host "No encontre server\\build\\index.js y runtime\\node.exe instalados. Se omite configuracion de clientes." -ForegroundColor Yellow
         return
     }
 
-    $configPaths = @(Get-ClaudeConfigPaths)
-    foreach ($configPath in $configPaths) {
-        Set-RevitMcpEntry -ConfigPath $configPath -Installed $installed
-    }
-
-    Write-Host "Claude configurado para Revit $($installed.Year) en $($configPaths.Count) ubicacion(es)." -ForegroundColor Green
-    Write-Host "Node: $($installed.NodePath)" -ForegroundColor DarkGray
-    Write-Host "Server: $($installed.ServerPath)" -ForegroundColor DarkGray
+    Repair-ClaudeConfig -Installed $installed
+    Repair-AntigravityConfig -Installed $installed
+    Repair-CodexConfig -Installed $installed
 }
 
 function Install-SelectedYears {
@@ -240,15 +393,15 @@ function Install-SelectedYears {
         }
     }
 
-    Repair-ClaudeConfig
+    Repair-ClientConfigs
 
     Write-Host ""
-    Write-Host "Listo. Abre Revit, pulsa 'Revit MCP Switch', y reinicia Claude Desktop completo." -ForegroundColor Green
+    Write-Host "Listo. Abre Revit, pulsa 'Revit MCP Switch', y reinicia tus clientes MCP." -ForegroundColor Green
     Pause
 }
 
 function Fix-Only {
-    Repair-ClaudeConfig
+    Repair-ClientConfigs
     Pause
 }
 
@@ -284,7 +437,7 @@ while ($true) {
     Write-Host "Que quieres hacer?" -ForegroundColor White
     Write-Host ""
     Write-Host "  [1] Instalar/Reparar Revit MCP en versiones elegidas"
-    Write-Host "  [2] Solo reparar configuracion MCP/Claude"
+    Write-Host "  [2] Solo reparar configuracion MCP de Claude/Antigravity/Codex"
     Write-Host "  [3] Desinstalar Revit MCP de versiones elegidas"
     Write-Host "  [4] Ver estado detectado"
     Write-Host "  [0] Salir"

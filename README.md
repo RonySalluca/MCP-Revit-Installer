@@ -31,6 +31,8 @@ irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Insta
 - Ejecuta el instalador oficial por cada version elegida.
 - Repara la configuracion de Claude/MCP sin borrar otros MCPs ni preferencias.
 - Detecta la ruta clasica de Claude y tambien la ruta MSIX/WindowsApps.
+- Configura Antigravity/Gemini en `.gemini\config\mcp_config.json` y, si existe, tambien en `.gemini\antigravity\mcp_config.json`.
+- Configura Codex en `.codex\config.toml` actualizando solo `[mcp_servers.revit-ludattilo]`.
 
 ## Uso local
 
