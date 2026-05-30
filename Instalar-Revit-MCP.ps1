@@ -130,6 +130,198 @@ function Download-OfficialScripts {
     Write-Host "OK: instalador descargado en TEMP." -ForegroundColor Green
 }
 
+function Test-AppxPackageInstalled {
+    param([string[]]$NamePatterns)
+
+    try {
+        $packages = @(Get-AppxPackage -ErrorAction SilentlyContinue)
+        foreach ($pattern in $NamePatterns) {
+            if ($packages | Where-Object { $_.Name -like $pattern -or $_.PackageFullName -like $pattern }) {
+                return $true
+            }
+        }
+    } catch {}
+
+    return $false
+}
+
+function Test-AnyPath {
+    param([string[]]$Paths)
+
+    foreach ($path in $Paths) {
+        if (Test-Path $path) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Get-ClientStatus {
+    $claudeConfigPaths = @(Get-ClaudeConfigPaths)
+    $antigravityConfigPaths = @(Get-AntigravityConfigPaths)
+    $codexConfigPath = Join-Path $env:USERPROFILE ".codex\config.toml"
+
+    $claudeInstalled = ($claudeConfigPaths.Count -gt 0) -or
+        (Test-AppxPackageInstalled -NamePatterns @("*Claude*", "*Anthropic*Claude*")) -or
+        (Test-AnyPath -Paths @(
+            (Join-Path $env:LOCALAPPDATA "Programs\Claude\Claude.exe"),
+            (Join-Path $env:LOCALAPPDATA "AnthropicClaude\Claude.exe"),
+            "C:\Program Files\Claude\Claude.exe"
+        ))
+
+    $antigravityInstalled = ($antigravityConfigPaths.Count -gt 0) -or
+        (Test-AnyPath -Paths @(
+            (Join-Path $env:USERPROFILE ".gemini\antigravity"),
+            (Join-Path $env:LOCALAPPDATA "Programs\Antigravity\Antigravity.exe"),
+            "C:\Program Files\Google\Antigravity\Antigravity.exe",
+            "C:\Program Files\Antigravity\Antigravity.exe"
+        ))
+
+    $codexInstalled = (Test-Path $codexConfigPath) -or
+        (Test-AppxPackageInstalled -NamePatterns @("OpenAI.Codex*")) -or
+        (Test-AnyPath -Paths @(
+            (Join-Path $env:LOCALAPPDATA "OpenAI\Codex"),
+            "C:\Program Files\WindowsApps\OpenAI.Codex_26.527.3686.0_x64__2p2nqsd0c76g0"
+        ))
+
+    return @(
+        [PSCustomObject]@{
+            Name = "Claude"
+            Installed = [bool]$claudeInstalled
+            ConfigFound = $claudeConfigPaths.Count -gt 0
+            ConfigPath = if ($claudeConfigPaths.Count -gt 0) { $claudeConfigPaths -join "; " } else { "" }
+            WingetId = "Anthropic.Claude"
+            WingetSource = "winget"
+        },
+        [PSCustomObject]@{
+            Name = "Antigravity"
+            Installed = [bool]$antigravityInstalled
+            ConfigFound = $antigravityConfigPaths.Count -gt 0
+            ConfigPath = if ($antigravityConfigPaths.Count -gt 0) { $antigravityConfigPaths -join "; " } else { "" }
+            WingetId = "Google.Antigravity"
+            WingetSource = "winget"
+        },
+        [PSCustomObject]@{
+            Name = "Codex"
+            Installed = [bool]$codexInstalled
+            ConfigFound = Test-Path $codexConfigPath
+            ConfigPath = if (Test-Path $codexConfigPath) { $codexConfigPath } else { "" }
+            WingetId = "9PLM9XGG6VKS"
+            WingetSource = "msstore"
+        }
+    )
+}
+
+function Test-AnyMcpClientInstalled {
+    return [bool](@(Get-ClientStatus | Where-Object { $_.Installed }).Count -gt 0)
+}
+
+function Show-Diagnostics {
+    Write-Title
+
+    Write-Host "Revit:" -ForegroundColor White
+    $revitInfo = @(Get-RevitYearInfo)
+    foreach ($item in $revitInfo) {
+        $sources = @()
+        if ($item.RevitExe) { $sources += "exe" }
+        if ($item.RevitRegistry) { $sources += "registro" }
+        $status = if ($item.RevitInstalled) { "detectado (" + ($sources -join "+") + ")" } elseif ($item.AddinsFolder) { "residuo Addins, no cuenta" } else { "no detectado" }
+        $mcp = if ($item.McpInstalled) { "MCP instalado" } else { "MCP no instalado" }
+        Write-Host ("  - Revit {0}: {1}; {2}" -f $item.Year, $status, $mcp)
+    }
+
+    Write-Host ""
+    Write-Host "Clientes MCP:" -ForegroundColor White
+    $clients = @(Get-ClientStatus)
+    foreach ($client in $clients) {
+        $installed = if ($client.Installed) { "instalado/detectado" } else { "no detectado" }
+        $config = if ($client.ConfigFound) { "config encontrada" } else { "sin config existente" }
+        Write-Host ("  - {0}: {1}; {2}" -f $client.Name, $installed, $config)
+        if ($client.ConfigFound) {
+            Write-Host ("      {0}" -f $client.ConfigPath) -ForegroundColor DarkGray
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Recomendacion:" -ForegroundColor White
+    if (-not ($revitInfo | Where-Object { $_.RevitInstalled })) {
+        Write-Host "  - Instala Revit primero. No uses residuos Addins como prueba de instalacion." -ForegroundColor Yellow
+    }
+
+    if (-not ($clients | Where-Object { $_.Installed })) {
+        Write-Host "  - Instala al menos un cliente MCP/LLM antes de instalar Revit MCP." -ForegroundColor Yellow
+        Write-Host "  - Si no sabes cual elegir: Claude para uso general, Codex para trabajo tecnico, Antigravity si usas Gemini/Google." -ForegroundColor DarkYellow
+    } elseif ($clients | Where-Object { $_.Installed -and -not $_.ConfigFound }) {
+        Write-Host "  - Abre los clientes instalados una vez para que creen su configuracion; luego vuelve a correr este script." -ForegroundColor Yellow
+    } else {
+        Write-Host "  - Ya puedes instalar/Reparar Revit MCP y luego configurar los clientes existentes." -ForegroundColor Green
+    }
+}
+
+function Read-SelectedClients {
+    $clients = @(Get-ClientStatus)
+    Write-Host "Clientes disponibles para instalar con winget:" -ForegroundColor White
+    Write-Host ""
+    for ($i = 0; $i -lt $clients.Count; $i++) {
+        $client = $clients[$i]
+        $status = if ($client.Installed) { "detectado" } else { "no detectado" }
+        Write-Host ("  [{0}] {1}  -  {2}" -f ($i + 1), $client.Name, $status)
+    }
+    Write-Host ""
+    Write-Host "  [A] Todos los no detectados"
+    Write-Host ""
+
+    $choice = (Read-Host "Elige numeros o A").Trim()
+    if ($choice -match "^[aA]$") {
+        return @($clients | Where-Object { -not $_.Installed })
+    }
+
+    $selected = @()
+    foreach ($part in $choice.Split(",")) {
+        $n = 0
+        if ([int]::TryParse($part.Trim(), [ref]$n)) {
+            if ($n -ge 1 -and $n -le $clients.Count) {
+                $selected += $clients[$n - 1]
+            }
+        }
+    }
+
+    return @($selected | Sort-Object Name -Unique)
+}
+
+function Install-McpClients {
+    Write-Title
+    $selected = @(Read-SelectedClients)
+    if ($selected.Count -eq 0) {
+        Write-Host "No elegiste clientes para instalar." -ForegroundColor Yellow
+        Pause
+        return
+    }
+
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Host "winget no esta disponible en esta maquina. Instala App Installer desde Microsoft Store." -ForegroundColor Red
+        Pause
+        return
+    }
+
+    foreach ($client in $selected) {
+        if ($client.Installed) {
+            Write-Host "$($client.Name) ya parece estar instalado. Se omite." -ForegroundColor Yellow
+            continue
+        }
+
+        Write-Host ""
+        Write-Host "Instalando $($client.Name)..." -ForegroundColor Cyan
+        & winget install --id $client.WingetId --source $client.WingetSource --accept-source-agreements --accept-package-agreements
+    }
+
+    Write-Host ""
+    Write-Host "Abre cada cliente instalado al menos una vez para que cree sus archivos de configuracion." -ForegroundColor Yellow
+    Write-Host "Luego vuelve a correr este script y usa la opcion de configurar MCP." -ForegroundColor Yellow
+    Pause
+}
+
 function Get-InstalledMcpServer {
     foreach ($year in ($SupportedYears | Sort-Object -Descending)) {
         $serverRoot = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$year\revit_mcp_plugin\Commands\RevitMCPCommandSet\server"
@@ -417,6 +609,13 @@ function Repair-ClientConfigs {
 }
 
 function Install-SelectedYears {
+    if (-not (Test-AnyMcpClientInstalled)) {
+        Write-Host "No se detecto ningun cliente MCP/LLM instalado." -ForegroundColor Red
+        Write-Host "Primero instala Claude, Codex o Antigravity desde la opcion de clientes." -ForegroundColor Yellow
+        Pause
+        return
+    }
+
     $years = Read-SelectedYears
     if ($years.Count -eq 0) {
         Write-Host "No elegiste versiones validas." -ForegroundColor Yellow
@@ -482,19 +681,21 @@ while ($true) {
     Write-Title
     Write-Host "Que quieres hacer?" -ForegroundColor White
     Write-Host ""
-    Write-Host "  [1] Instalar/Reparar Revit MCP en versiones elegidas"
-    Write-Host "  [2] Solo reparar configuracion MCP de Claude/Antigravity/Codex"
-    Write-Host "  [3] Desinstalar Revit MCP de versiones elegidas"
-    Write-Host "  [4] Ver estado detectado"
+    Write-Host "  [1] Diagnostico y recomendacion"
+    Write-Host "  [2] Instalar clientes MCP/LLM (Claude, Codex, Antigravity)"
+    Write-Host "  [3] Instalar/Reparar Revit MCP en versiones elegidas"
+    Write-Host "  [4] Configurar MCP en clientes existentes"
+    Write-Host "  [5] Desinstalar Revit MCP de versiones elegidas"
     Write-Host "  [0] Salir"
     Write-Host ""
 
     $action = (Read-Host "Opcion").Trim()
     switch ($action) {
-        "1" { Install-SelectedYears }
-        "2" { Fix-Only }
-        "3" { Uninstall-SelectedYears }
-        "4" { Write-Title; Get-RevitYearInfo | Format-Table -AutoSize; Pause }
+        "1" { Show-Diagnostics; Pause }
+        "2" { Install-McpClients }
+        "3" { Install-SelectedYears }
+        "4" { Fix-Only }
+        "5" { Uninstall-SelectedYears }
         "0" { exit 0 }
         default { Write-Host "Opcion no valida." -ForegroundColor Yellow; Pause }
     }

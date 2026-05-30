@@ -22,6 +22,9 @@ irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Insta
 
 ## Que hace
 
+- Ejecuta un diagnostico antes de instalar.
+- Requiere al menos un cliente MCP/LLM detectado: Claude, Codex o Antigravity.
+- Permite instalar clientes MCP/LLM con `winget`.
 - Muestra un menu simple.
 - Permite elegir versiones de Revit: 2023, 2024, 2025, 2026 y 2027.
 - Permite instalar en todas las versiones reales detectadas.
@@ -54,14 +57,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\Instalar-Revit-MCP.ps1"
 
 ## Flujo recomendado
 
-1. Cierra Revit.
-2. Ejecuta el script.
-3. Elige `Instalar/Reparar`.
-4. Selecciona las versiones de Revit.
-5. Abre Revit.
-6. Ve a `Add-Ins`.
-7. Haz clic en `Revit MCP Switch`.
-8. Reinicia Claude Desktop completamente.
+1. Ejecuta el script.
+2. Elige `Diagnostico y recomendacion`.
+3. Si no hay cliente MCP/LLM, instala Claude, Codex o Antigravity desde el menu.
+4. Abre el cliente instalado al menos una vez para que cree sus archivos de configuracion.
+5. Vuelve a ejecutar el script.
+6. Cierra Revit.
+7. Elige `Instalar/Reparar Revit MCP`.
+8. Selecciona las versiones reales de Revit.
+9. Elige `Configurar MCP en clientes existentes`.
+10. Abre Revit, ve a `Add-Ins` y haz clic en `Revit MCP Switch`.
+11. Reinicia tus clientes MCP/LLM.
 
 ## Notas
 
