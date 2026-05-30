@@ -612,7 +612,8 @@ function Set-RevitMcpEntry {
 
     $rawJson = $config | ConvertTo-Json -Depth 20 -Compress
     $formattedJson = Format-Json -json $rawJson
-    Set-Content -Path $ConfigPath -Value $formattedJson -Encoding UTF8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($ConfigPath, $formattedJson, $utf8NoBom)
     Get-Content $ConfigPath -Raw | ConvertFrom-Json | Out-Null
     Write-Host "OK: $ConfigPath" -ForegroundColor Green
 }
@@ -669,7 +670,8 @@ function Set-JsonMcpEntry {
     $config.mcpServers | Add-Member -NotePropertyName $ServerName -NotePropertyValue $entry
     $rawJson = $config | ConvertTo-Json -Depth 20 -Compress
     $formattedJson = Format-Json -json $rawJson
-    Set-Content -Path $ConfigPath -Value $formattedJson -Encoding UTF8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($ConfigPath, $formattedJson, $utf8NoBom)
     Get-Content $ConfigPath -Raw | ConvertFrom-Json | Out-Null
     Write-Host "OK: $ConfigPath" -ForegroundColor Green
 }
