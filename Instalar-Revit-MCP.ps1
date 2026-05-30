@@ -520,6 +520,46 @@ function Get-ClaudeConfigPaths {
     return @($paths | Select-Object -Unique)
 }
 
+function Format-Json {
+    param([string]$json)
+    $indent = 0
+    $result = ""
+    $inString = $false
+    for ($i = 0; $i -lt $json.Length; $i++) {
+        $c = $json[$i]
+        if ($c -eq '"') {
+            $bsCount = 0
+            $j = $i - 1
+            while ($j -ge 0 -and $json[$j] -eq '\') {
+                $bsCount++
+                $j--
+            }
+            if ($bsCount % 2 -eq 0) {
+                $inString = -not $inString
+            }
+        }
+        if (-not $inString) {
+            if ($c -eq '{' -or $c -eq '[') {
+                $indent += 2
+                $result += $c + "`r`n" + (" " * $indent)
+            } elseif ($c -eq '}' -or $c -eq ']') {
+                $indent -= 2
+                $result += "`r`n" + (" " * $indent) + $c
+            } elseif ($c -eq ',') {
+                $result += $c + "`r`n" + (" " * $indent)
+            } elseif ($c -eq ':') {
+                $result += ": "
+            } elseif ([char]::IsWhiteSpace($c)) {
+            } else {
+                $result += $c
+            }
+        } else {
+            $result += $c
+        }
+    }
+    return $result
+}
+
 function Set-RevitMcpEntry {
     param(
         [Parameter(Mandatory = $true)]
@@ -572,7 +612,9 @@ function Set-RevitMcpEntry {
     # Only add revit-mcp when it is missing.
     $config.mcpServers | Add-Member -NotePropertyName "revit-mcp" -NotePropertyValue $entry
 
-    $config | ConvertTo-Json -Depth 20 | Set-Content -Path $ConfigPath -Encoding UTF8
+    $rawJson = $config | ConvertTo-Json -Depth 20 -Compress
+    $formattedJson = Format-Json -json $rawJson
+    Set-Content -Path $ConfigPath -Value $formattedJson -Encoding UTF8
     Get-Content $ConfigPath -Raw | ConvertFrom-Json | Out-Null
     Write-Host "OK: $ConfigPath" -ForegroundColor Green
 }
@@ -627,7 +669,9 @@ function Set-JsonMcpEntry {
     }
 
     $config.mcpServers | Add-Member -NotePropertyName $ServerName -NotePropertyValue $entry
-    $config | ConvertTo-Json -Depth 20 | Set-Content -Path $ConfigPath -Encoding UTF8
+    $rawJson = $config | ConvertTo-Json -Depth 20 -Compress
+    $formattedJson = Format-Json -json $rawJson
+    Set-Content -Path $ConfigPath -Value $formattedJson -Encoding UTF8
     Get-Content $ConfigPath -Raw | ConvertFrom-Json | Out-Null
     Write-Host "OK: $ConfigPath" -ForegroundColor Green
 }
