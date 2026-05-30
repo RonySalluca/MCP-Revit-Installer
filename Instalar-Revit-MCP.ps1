@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Menu installer/repair wrapper for LuDattilo/revit-mcp-server.
@@ -569,19 +569,20 @@ function Set-RevitMcpEntry {
     )
 
     if (-not (Test-Path $ConfigPath)) {
-        Write-Host "Config no existe, no se crea: $ConfigPath" -ForegroundColor Yellow
-        return
-    }
-
-    $config = $null
-
-    try {
-        $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-    } catch {
-        $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        Copy-Item $ConfigPath $backupPath -Force
-        Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
-        return
+        $dir = Split-Path $ConfigPath
+        if (-not (Test-Path $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        $config = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
+    } else {
+        try {
+            $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+        } catch {
+            $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $ConfigPath $backupPath -Force
+            Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
+            return
+        }
     }
 
     if (-not $config) {
@@ -630,17 +631,20 @@ function Set-JsonMcpEntry {
     )
 
     if (-not (Test-Path $ConfigPath)) {
-        Write-Host "Config no existe, no se crea: $ConfigPath" -ForegroundColor Yellow
-        return
-    }
-
-    try {
-        $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-    } catch {
-        $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        Copy-Item $ConfigPath $backupPath -Force
-        Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
-        return
+        $dir = Split-Path $ConfigPath
+        if (-not (Test-Path $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        $config = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
+    } else {
+        try {
+            $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+        } catch {
+            $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $ConfigPath $backupPath -Force
+            Write-Host "JSON invalido, no se modifica. Backup: $backupPath" -ForegroundColor Yellow
+            return
+        }
     }
 
     if (-not $config) {
@@ -696,8 +700,8 @@ function Repair-AntigravityConfig {
     Write-Host "Reparando configuracion MCP/Antigravity..." -ForegroundColor Cyan
     $paths = @(Get-AntigravityConfigPaths)
     if ($paths.Count -eq 0) {
-        Write-Host "Antigravity/Gemini no detectado. No se crea configuracion." -ForegroundColor Yellow
-        return
+        $defaultPath = Join-Path $env:USERPROFILE ".gemini\config\mcp_config.json"
+        $paths = @($defaultPath)
     }
 
     foreach ($path in $paths) {
@@ -782,8 +786,8 @@ function Repair-ClaudeConfig {
 
     $configPaths = @(Get-ClaudeConfigPaths)
     if ($configPaths.Count -eq 0) {
-        Write-Host "Claude no detectado. No se crea configuracion." -ForegroundColor Yellow
-        return
+        $defaultPath = Join-Path $env:APPDATA "Claude\claude_desktop_config.json"
+        $configPaths = @($defaultPath)
     }
 
     foreach ($configPath in $configPaths) {
@@ -916,3 +920,4 @@ while ($true) {
         default { Write-Host "Opcion no valida." -ForegroundColor Yellow; Pause }
     }
 }
+
