@@ -163,9 +163,6 @@ function Set-RevitMcpEntry {
     if (Test-Path $ConfigPath) {
         try {
             $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-            $backupPath = "$ConfigPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item $ConfigPath $backupPath -Force
-            Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
         } catch {
             $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
             Copy-Item $ConfigPath $backupPath -Force
@@ -180,14 +177,25 @@ function Set-RevitMcpEntry {
         $config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{}) -Force
     }
 
+    if ($config.mcpServers.PSObject.Properties["revit-mcp"]) {
+        Write-Host "Ya existe revit-mcp, no se modifica: $ConfigPath" -ForegroundColor Yellow
+        return
+    }
+
+    if (Test-Path $ConfigPath) {
+        $backupPath = "$ConfigPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Copy-Item $ConfigPath $backupPath -Force
+        Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
+    }
+
     $entry = [PSCustomObject]@{
         command = $Installed.NodePath
         args = @($Installed.ServerPath)
     }
 
     # Preserve every existing MCP server and every top-level Claude setting.
-    # Only add/replace the revit-mcp entry.
-    $config.mcpServers | Add-Member -NotePropertyName "revit-mcp" -NotePropertyValue $entry -Force
+    # Only add revit-mcp when it is missing.
+    $config.mcpServers | Add-Member -NotePropertyName "revit-mcp" -NotePropertyValue $entry
 
     $config | ConvertTo-Json -Depth 20 | Set-Content -Path $ConfigPath -Encoding UTF8
     Get-Content $ConfigPath -Raw | ConvertFrom-Json | Out-Null
@@ -212,9 +220,6 @@ function Set-JsonMcpEntry {
     if (Test-Path $ConfigPath) {
         try {
             $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-            $backupPath = "$ConfigPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item $ConfigPath $backupPath -Force
-            Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
         } catch {
             $backupPath = "$ConfigPath.invalid-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
             Copy-Item $ConfigPath $backupPath -Force
@@ -229,13 +234,24 @@ function Set-JsonMcpEntry {
         $config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{}) -Force
     }
 
+    if ($config.mcpServers.PSObject.Properties[$ServerName]) {
+        Write-Host "Ya existe $ServerName, no se modifica: $ConfigPath" -ForegroundColor Yellow
+        return
+    }
+
+    if (Test-Path $ConfigPath) {
+        $backupPath = "$ConfigPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Copy-Item $ConfigPath $backupPath -Force
+        Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
+    }
+
     $entry = [PSCustomObject]@{
         command = $Installed.NodePath
         args = @($Installed.ServerPath)
         env = [PSCustomObject]@{}
     }
 
-    $config.mcpServers | Add-Member -NotePropertyName $ServerName -NotePropertyValue $entry -Force
+    $config.mcpServers | Add-Member -NotePropertyName $ServerName -NotePropertyValue $entry
     $config | ConvertTo-Json -Depth 20 | Set-Content -Path $ConfigPath -Encoding UTF8
     Get-Content $ConfigPath -Raw | ConvertFrom-Json | Out-Null
     Write-Host "OK: $ConfigPath" -ForegroundColor Green
@@ -291,9 +307,6 @@ function Set-CodexMcpEntry {
     $content = ""
     if (Test-Path $ConfigPath) {
         $content = Get-Content $ConfigPath -Raw
-        $backupPath = "$ConfigPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        Copy-Item $ConfigPath $backupPath -Force
-        Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
     }
 
     $nodeLiteral = ConvertTo-TomlLiteral $Installed.NodePath
@@ -307,8 +320,15 @@ enabled = true
 
     $pattern = "(?ms)^\\[mcp_servers\\.revit-ludattilo\\]\\r?\\n.*?(?=^\\[|\\z)"
     if ($content -match $pattern) {
-        $content = [regex]::Replace($content, $pattern, ($block.TrimEnd() + "`r`n`r`n"))
+        Write-Host "Ya existe [mcp_servers.revit-ludattilo], no se modifica: $ConfigPath" -ForegroundColor Yellow
+        return
     } else {
+        if (Test-Path $ConfigPath) {
+            $backupPath = "$ConfigPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $ConfigPath $backupPath -Force
+            Write-Host "Backup: $backupPath" -ForegroundColor DarkGray
+        }
+
         if ($content.Trim().Length -gt 0) {
             $content = $content.TrimEnd() + "`r`n`r`n" + $block.TrimEnd() + "`r`n"
         } else {

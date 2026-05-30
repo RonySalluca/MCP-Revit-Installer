@@ -30,9 +30,10 @@ irm https://raw.githubusercontent.com/RonySalluca/MCP-Revit-Installer/main/Insta
 - Descarga el `install.ps1` oficial.
 - Ejecuta el instalador oficial por cada version elegida.
 - Repara la configuracion de Claude/MCP sin borrar otros MCPs ni preferencias.
+- Si la entrada Revit MCP ya existe, no la modifica.
 - Detecta la ruta clasica de Claude y tambien la ruta MSIX/WindowsApps.
 - Configura Antigravity/Gemini en `.gemini\config\mcp_config.json` y, si existe, tambien en `.gemini\antigravity\mcp_config.json`.
-- Configura Codex en `.codex\config.toml` actualizando solo `[mcp_servers.revit-ludattilo]`.
+- Configura Codex en `.codex\config.toml` agregando `[mcp_servers.revit-ludattilo]` solo si falta.
 
 ## Uso local
 
