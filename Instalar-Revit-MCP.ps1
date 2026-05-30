@@ -22,9 +22,10 @@ $InstallerUrl = "$RepoRaw/install.ps1"
 $InstallerPath = Join-Path $env:TEMP "install-revit-mcp-official.ps1"
 $SupportedYears = @("2023", "2024", "2025", "2026", "2027")
 
-function Test-RevitRegistryInstalled {
+function Get-RevitExePaths {
     param([string]$Year)
 
+    $paths = @("C:\Program Files\Autodesk\Revit $Year\Revit.exe")
     $regPaths = @(
         "HKLM:\SOFTWARE\Autodesk\Revit\Autodesk Revit $Year",
         "HKLM:\SOFTWARE\WOW6432Node\Autodesk\Revit\Autodesk Revit $Year",
@@ -33,11 +34,19 @@ function Test-RevitRegistryInstalled {
 
     foreach ($path in $regPaths) {
         if (Test-Path $path) {
-            return $true
+            try {
+                $props = Get-ItemProperty $path -ErrorAction SilentlyContinue
+                foreach ($name in @("InstallLocation", "InstallationLocation", "InstallDir")) {
+                    $location = $props.$name
+                    if ($location) {
+                        $paths += (Join-Path $location "Revit.exe")
+                    }
+                }
+            } catch {}
         }
     }
 
-    return $false
+    return @($paths | Where-Object { Test-Path $_ } | Select-Object -Unique)
 }
 
 function Write-Title {
@@ -64,14 +73,15 @@ function Get-RevitYearInfo {
         $addinDir = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$year"
         $pluginDir = Join-Path $addinDir "revit_mcp_plugin"
         $addinFile = Join-Path $addinDir "mcp-servers-for-revit.addin"
-        $exeExists = Test-Path $exe
-        $registryExists = Test-RevitRegistryInstalled -Year $year
+        $exePaths = @(Get-RevitExePaths -Year $year)
+        $exeExists = $exePaths.Count -gt 0
 
         $items += [PSCustomObject]@{
             Year = $year
-            RevitInstalled = $exeExists -or $registryExists
+            RevitInstalled = $exeExists
             RevitExe = $exeExists
-            RevitRegistry = $registryExists
+            RevitRegistry = $false
+            RevitExePath = if ($exeExists) { $exePaths -join "; " } else { "" }
             AddinsFolder = Test-Path $addinDir
             McpInstalled = (Test-Path $pluginDir) -and (Test-Path $addinFile)
             AddinsPath = $addinDir
@@ -152,6 +162,32 @@ function Test-AppxPackageInstalled {
     return $false
 }
 
+function Test-UninstallEntryInstalled {
+    param([string[]]$NamePatterns)
+
+    $roots = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+
+    foreach ($root in $roots) {
+        if (-not (Test-Path $root)) { continue }
+        foreach ($entry in Get-ChildItem $root -ErrorAction SilentlyContinue) {
+            try {
+                $props = Get-ItemProperty $entry.PSPath -ErrorAction SilentlyContinue
+                foreach ($pattern in $NamePatterns) {
+                    if ($props.DisplayName -like $pattern) {
+                        return $true
+                    }
+                }
+            } catch {}
+        }
+    }
+
+    return $false
+}
+
 function Test-AnyPath {
     param([string[]]$Paths)
 
@@ -169,27 +205,31 @@ function Get-ClientStatus {
     $antigravityConfigPaths = @(Get-AntigravityConfigPaths)
     $codexConfigPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 
-    $claudeInstalled = ($claudeConfigPaths.Count -gt 0) -or
+    $claudeInstalled =
         (Test-AppxPackageInstalled -NamePatterns @("*Claude*", "*Anthropic*Claude*")) -or
+        (Test-UninstallEntryInstalled -NamePatterns @("Claude", "Claude *", "Anthropic Claude*")) -or
         (Test-AnyPath -Paths @(
             (Join-Path $env:LOCALAPPDATA "Programs\Claude\Claude.exe"),
             (Join-Path $env:LOCALAPPDATA "AnthropicClaude\Claude.exe"),
-            "C:\Program Files\Claude\Claude.exe"
+            "C:\Program Files\Claude\Claude.exe",
+            "C:\Program Files\Anthropic\Claude\Claude.exe"
         ))
 
-    $antigravityInstalled = ($antigravityConfigPaths.Count -gt 0) -or
+    $antigravityInstalled =
+        (Test-UninstallEntryInstalled -NamePatterns @("Antigravity", "Google Antigravity*", "Antigravity IDE*")) -or
         (Test-AnyPath -Paths @(
-            (Join-Path $env:USERPROFILE ".gemini\antigravity"),
             (Join-Path $env:LOCALAPPDATA "Programs\Antigravity\Antigravity.exe"),
             "C:\Program Files\Google\Antigravity\Antigravity.exe",
             "C:\Program Files\Antigravity\Antigravity.exe"
         ))
 
-    $codexInstalled = (Test-Path $codexConfigPath) -or
+    $codexInstalled =
         (Test-AppxPackageInstalled -NamePatterns @("OpenAI.Codex*")) -or
+        (Test-UninstallEntryInstalled -NamePatterns @("Codex", "OpenAI Codex*")) -or
         (Test-AnyPath -Paths @(
-            (Join-Path $env:LOCALAPPDATA "OpenAI\Codex"),
-            "C:\Program Files\WindowsApps\OpenAI.Codex_26.527.3686.0_x64__2p2nqsd0c76g0"
+            (Join-Path $env:LOCALAPPDATA "OpenAI\Codex\Codex.exe"),
+            (Join-Path $env:LOCALAPPDATA "Programs\Codex\Codex.exe"),
+            "C:\Program Files\Codex\Codex.exe"
         ))
 
     return @(
