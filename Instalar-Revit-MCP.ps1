@@ -590,8 +590,8 @@ function Set-RevitMcpEntry {
         $config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{}) -Force
     }
 
-    if ($config.mcpServers.PSObject.Properties["revit-mcp"]) {
-        Write-Host "Ya existe revit-mcp, no se modifica: $ConfigPath" -ForegroundColor Yellow
+    if ($config.mcpServers.PSObject.Properties["ECDRevitMCP"]) {
+        Write-Host "Ya existe ECDRevitMCP, no se modifica: $ConfigPath" -ForegroundColor Yellow
         return
     }
 
@@ -607,8 +607,8 @@ function Set-RevitMcpEntry {
     }
 
     # Preserve every existing MCP server and every top-level Claude setting.
-    # Only add revit-mcp when it is missing.
-    $config.mcpServers | Add-Member -NotePropertyName "revit-mcp" -NotePropertyValue $entry
+    # Only add ECDRevitMCP when it is missing.
+    $config.mcpServers | Add-Member -NotePropertyName "ECDRevitMCP" -NotePropertyValue $entry
 
     $rawJson = $config | ConvertTo-Json -Depth 20 -Compress
     $formattedJson = Format-Json -json $rawJson
@@ -701,7 +701,7 @@ function Repair-AntigravityConfig {
     }
 
     foreach ($path in $paths) {
-        Set-JsonMcpEntry -ConfigPath $path -ServerName "revit-mcp" -Installed $Installed
+        Set-JsonMcpEntry -ConfigPath $path -ServerName "ECDRevitMCP" -Installed $Installed
     }
     Write-Host "Antigravity configurado en $($paths.Count) ubicacion(es)." -ForegroundColor Green
 }
@@ -730,15 +730,15 @@ function Set-CodexMcpEntry {
     $nodeLiteral = ConvertTo-TomlLiteral $Installed.NodePath
     $serverLiteral = ConvertTo-TomlLiteral $Installed.ServerPath
     $block = @"
-[mcp_servers.revit-ludattilo]
+[mcp_servers.ECDRevitMCP]
 command = $nodeLiteral
 args = [$serverLiteral]
 enabled = true
 "@
 
-    $pattern = '(?ms)^\[mcp_servers\.revit-ludattilo\]\r?\n.*?(?=^\[|\z)'
+    $pattern = '(?ms)^\[mcp_servers\.ECDRevitMCP\]\r?\n.*?(?=^\[|\z)'
     if ($content -match $pattern) {
-        Write-Host "Ya existe [mcp_servers.revit-ludattilo], no se modifica: $ConfigPath" -ForegroundColor Yellow
+        Write-Host "Ya existe [mcp_servers.ECDRevitMCP], no se modifica: $ConfigPath" -ForegroundColor Yellow
         return
     } else {
         if (Test-Path $ConfigPath) {
