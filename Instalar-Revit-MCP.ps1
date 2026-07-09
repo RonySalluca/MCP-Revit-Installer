@@ -260,8 +260,11 @@ function Download-OfficialScripts {
     param([switch]$Force)
     Write-Host ""
     if (-not $Force -and (Test-Path $InstallerPath)) {
-        Write-Host "Usando instalador en cache (TEMP). Usa -Force para re-descargar." -ForegroundColor Yellow
-        return
+        $age = (Get-Date) - (Get-Item $InstallerPath).LastWriteTime
+        if ($age.TotalHours -lt 24) {
+            Write-Host "Usando instalador en cache (tiene $([int]$age.TotalHours)h, se renueva cada 24h)." -ForegroundColor Yellow
+            return
+        }
     }
     Write-Host "Descargando instalador oficial..." -ForegroundColor Cyan
     $maxRetries = 3
