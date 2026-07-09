@@ -257,10 +257,30 @@ function Read-SelectedYears {
 }
 
 function Download-OfficialScripts {
+    param([switch]$Force)
     Write-Host ""
+    if (-not $Force -and (Test-Path $InstallerPath)) {
+        Write-Host "Usando instalador en cache (TEMP). Usa -Force para re-descargar." -ForegroundColor Yellow
+        return
+    }
     Write-Host "Descargando instalador oficial..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -Headers @{ "User-Agent" = "revit-mcp-menu-installer" }
-    Write-Host "OK: instalador descargado en TEMP." -ForegroundColor Green
+    $maxRetries = 3
+    $retryDelay = 10
+    for ($i = 1; $i -le $maxRetries; $i++) {
+        try {
+            Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -Headers @{ "User-Agent" = "revit-mcp-menu-installer" }
+            Write-Host "OK: instalador descargado en TEMP." -ForegroundColor Green
+            return
+        } catch {
+            if ($_.Exception.Response.StatusCode.value__ -eq 429 -and $i -lt $maxRetries) {
+                Write-Host "GitHub rate limit (429). Esperando $retryDelay segundos... (intento $i/$maxRetries)" -ForegroundColor Yellow
+                Start-Sleep -Seconds $retryDelay
+                $retryDelay *= 2
+            } else {
+                throw
+            }
+        }
+    }
 }
 
 function Test-AppxPackageInstalled {
